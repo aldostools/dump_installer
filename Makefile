@@ -25,12 +25,12 @@ endif
 
 ELF := dump_installer.elf
 
-CFLAGS := -Wall -Werror -lSceIpmi -lSceAppInstUtil -lsqlite3
+CFLAGS := -Wall -Werror -lz -lSceSystemService -lSceUserService -lSceAppInstUtil -lSceFsInternalForVsh -lsqlite3
 
 all: $(ELF)
 
-$(ELF): main.cpp
-	$(CXX) $(CFLAGS) -o $@ $^
+$(ELF): $(wildcard *.c)
+	$(CC) $(CFLAGS) -o $@ $^
 	strip $@
 
 clean:

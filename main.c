@@ -20,6 +20,68 @@ int sceAppInstUtilInitialize(void);
 int sceAppInstUtilAppInstallTitleDir(const char* title_id, const char* install_path, void* reserved);
 int sceAppInstUtilAppInstallAll(void* reserved);
 
+#define SHADOWMOUNTPLUS_NOAUTOMOUNT "/data/.kstuff_noautomount"
+#define SHADOWMOUNTPLUS_DIR "/data/shadowmount"
+#define SHADOWMOUNTPLUS_MANUAL_LIST "/data/shadowmount/manual.lst"
+
+static bool shadowmountplus_enabled(void) {
+    struct stat st;
+    return access(SHADOWMOUNTPLUS_NOAUTOMOUNT, F_OK) == 0 &&
+           stat(SHADOWMOUNTPLUS_DIR, &st) == 0 &&
+           S_ISDIR(st.st_mode);
+}
+
+static int close_with_errno(FILE* f, int ret) {
+    int saved_errno = errno;
+    fclose(f);
+    errno = saved_errno;
+    return ret;
+}
+
+static int add_shadowmountplus_link(const char* link_path) {
+    FILE* f = fopen(SHADOWMOUNTPLUS_MANUAL_LIST, "a+");
+    if (!f) {
+        return -1;
+    }
+
+    if (fseek(f, 0, SEEK_SET) != 0) {
+        return close_with_errno(f, -1);
+    }
+
+    bool has_content = false;
+    bool ends_with_newline = true;
+    char line[PATH_MAX + 4];
+
+    while (fgets(line, sizeof(line), f)) {
+        size_t len = strlen(line);
+        has_content = true;
+        ends_with_newline = len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r');
+        line[strcspn(line, "\r\n")] = '\0';
+
+        if (!strcmp(line, link_path)) {
+            fclose(f);
+            return 1;
+        }
+    }
+
+    if (ferror(f) || fseek(f, 0, SEEK_END) != 0) {
+        return close_with_errno(f, -1);
+    }
+
+    int ret = 0;
+    if (has_content && !ends_with_newline && fputc('\n', f) == EOF) {
+        ret = -1;
+    }
+    if (ret == 0 && fprintf(f, "%s\n", link_path) < 0) {
+        ret = -1;
+    }
+    if (fclose(f) != 0) {
+        ret = -1;
+    }
+
+    return ret;
+}
+
 int main(void) {
     char cwd[PATH_MAX];
     char title_id[32] = {};
@@ -31,36 +93,6 @@ int main(void) {
 	
     notify("Dump Installer 1.05 Beta - PFS + UFS + exFAT");
 
-    const char *dirs[] = {
-        "/data/imgmnt",
-        "/data/imgmnt/exfatmnt",
-        "/data/imgmnt/pfsmnt",
-        "/data/imgmnt/ufsmnt"
-    };
-    
-    for (size_t i = 0; i < sizeof(dirs)/sizeof(dirs[0]); i++) {
-        if (mkdir(dirs[i], 0755) != 0) {
-            if (errno != EEXIST) {
-                // Try to create parent directory first
-                char parent[PATH_MAX];
-                strncpy(parent, dirs[i], sizeof(parent) - 1);
-                parent[sizeof(parent)-1] = '\0';
-                
-                char *last_slash = strrchr(parent, '/');
-                if (last_slash && last_slash != parent) {
-                    *last_slash = '\0';
-                    mkdir(parent, 0755);   // ignore error, we'll try again
-                }
-
-                if (mkdir(dirs[i], 0755) != 0 && errno != EEXIST) {
-                    printf("Failed to create %s (errno %d: %s)\n", 
-                           dirs[i], errno, strerror(errno));
-                    return 1;
-                }
-            }
-        }
-    }
-	
     if (!getcwd(cwd, sizeof(cwd))) {
         printf("Error: Unable to determine working directory\n");
         return -1;
@@ -74,6 +106,52 @@ int main(void) {
                                        &is_ufs, &is_pfs, &is_exfat);
     char mount_point[MAX_PATH] = {0};
     const char* nullfs_src = cwd;
+
+    if (shadowmountplus_enabled()) {
+        const char* link_path = has_image ? image_file : cwd;
+        int ret = add_shadowmountplus_link(link_path);
+        if (ret == 1) {
+            notify("Game already installed in ShadowMountPlus: %s", link_path);
+            return 0;
+        }
+        if (ret != 0) {
+            notify("Failed to update ShadowMountPlus: %s", strerror(errno));
+            return -1;
+        }
+
+        notify("Added to ShadowMountPlus: %s", link_path);
+        return 0;
+    }
+
+    const char *dirs[] = {
+        "/data/imgmnt",
+        "/data/imgmnt/exfatmnt",
+        "/data/imgmnt/pfsmnt",
+        "/data/imgmnt/ufsmnt"
+    };
+
+    for (size_t i = 0; i < sizeof(dirs)/sizeof(dirs[0]); i++) {
+        if (mkdir(dirs[i], 0755) != 0) {
+            if (errno != EEXIST) {
+                // Try to create parent directory first
+                char parent[PATH_MAX];
+                strncpy(parent, dirs[i], sizeof(parent) - 1);
+                parent[sizeof(parent)-1] = '\0';
+
+                char *last_slash = strrchr(parent, '/');
+                if (last_slash && last_slash != parent) {
+                    *last_slash = '\0';
+                    mkdir(parent, 0755);   // ignore error, we'll try again
+                }
+
+                if (mkdir(dirs[i], 0755) != 0 && errno != EEXIST) {
+                    printf("Failed to create %s (errno %d: %s)\n",
+                           dirs[i], errno, strerror(errno));
+                    return 1;
+                }
+            }
+        }
+    }
 
     if (has_image) {      
         if (is_ufs) {

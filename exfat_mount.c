@@ -35,8 +35,8 @@ bool mount_exfat_image(const char *file_path, char *out_mount_point) {
     snprintf(out_mount_point, MAX_PATH, "/data/imgmnt/exfatmnt/%s", mount_name);
 
     struct statfs sfs;
-    if (statfs(out_mount_point, &sfs) == 0 && strcmp(sfs.f_fstypename, "ufs") == 0) {
-        notify("UFS already mounted at %s", out_mount_point);
+	if (statfs(out_mount_point, &sfs) == 0 && strcmp(sfs.f_fstypename, "exfatfs") == 0)
+        notify("EXFAT already mounted at %s", out_mount_point);
         return true;
     }
 

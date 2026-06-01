@@ -29,7 +29,7 @@ int main(void) {
     char src_sce_sys[PATH_MAX];
     char mount_lnk_path[PATH_MAX];
 	
-    notify("Dump Installer 1.05 Beta - PFS + UFS + exFAT");
+    notify("Dump Installer 1.06 Beta - PFS + UFS + exFAT");
 
     const char *dirs[] = {
         "/data/imgmnt",
@@ -258,8 +258,9 @@ int main(void) {
     }
 
     notify("Fixing Config, please wait...");
-    //printf("Fixing Config, please wait...\n");
 
+    update_trophy(title_id, src_sce_sys);
+	
     sleep(3);
     update_snd0info(title_id);
 

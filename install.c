@@ -42,6 +42,46 @@ int copy_sce_sys_to_appmeta(const char* src, const char* title_id) {
     return 0;
 }
 
+int update_trophy(const char* title_id, const char* src_sce_sys) {
+    char dst_base[MAX_PATH];
+    char src[MAX_PATH];
+    char dst[MAX_PATH];
+
+    snprintf(dst_base, sizeof(dst_base), "/system_data/priv/appmeta/%s", title_id);
+
+    // Create only the needed subdirectories
+    char trophy2_dir[MAX_PATH];
+    char uds_dir[MAX_PATH];
+    snprintf(trophy2_dir, sizeof(trophy2_dir), "%s/trophy2", dst_base);
+    snprintf(uds_dir, sizeof(uds_dir), "%s/uds", dst_base);
+
+    mkdir(trophy2_dir, 0755);
+    mkdir(uds_dir, 0755);
+
+    // 1. trophy2/npbind.dat
+    snprintf(src, sizeof(src), "%s/trophy2/npbind.dat", src_sce_sys);
+    snprintf(dst, sizeof(dst), "%s/trophy2/npbind.dat", dst_base);
+    if (access(src, F_OK) == 0) {
+        copy_file(src, dst);
+    }
+
+    // 2. uds/npbind.dat
+    snprintf(src, sizeof(src), "%s/uds/npbind.dat", src_sce_sys);
+    snprintf(dst, sizeof(dst), "%s/uds/npbind.dat", dst_base);
+    if (access(src, F_OK) == 0) {
+        copy_file(src, dst);
+    }
+
+    // 3. param.json
+    snprintf(src, sizeof(src), "%s/param.json", src_sce_sys);
+    snprintf(dst, sizeof(dst), "%s/param.json", dst_base);
+    if (access(src, F_OK) == 0) {
+        copy_file(src, dst);
+    }
+
+    return 0;
+}
+
 int update_snd0info(const char* title_id) {
     sqlite3* db = NULL;
     sqlite3_stmt* stmt = NULL;

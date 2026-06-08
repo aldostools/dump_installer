@@ -21,11 +21,11 @@ bool mount_exfat_image(const char *file_path, char *out_mount_point) {
         return false;
     }
 
-    time_t now = time(NULL);
+    /*time_t now = time(NULL);
     if (difftime(now, st.st_mtime) < 12.0) {
         notify("Image too new (%.0fs) - skipping", difftime(now, st.st_mtime));
         return false;
-    }
+    }*/
 
     const char* filename = strrchr(file_path, '/') ? strrchr(file_path, '/') + 1 : file_path;
     char mount_name[256];
@@ -98,8 +98,8 @@ bool mount_exfat_image(const char *file_path, char *out_mount_point) {
         req.io_version=1;
 		req.device_id=-1;
         req.sector_size_0=512u;
-		req.sector_size_1=req.sector_size_0;
-        req.image_type=7;
+		req.sector_size_1=65536u;
+        req.image_type=0;
 		req.layer_count=1;
         req.device_size=(uint64_t)st.st_size;
         req.layers_ptr=&layer;

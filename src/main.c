@@ -12,6 +12,7 @@
 #include "utils.h"
 #include "mount_helpers.h"
 #include "pfs_mount.h"
+#include "pfsc_mount.h"
 #include "ufs_mount.h"
 #include "exfat_mount.h"
 #include "install.h"
@@ -101,9 +102,10 @@ int main(void) {
     char image_file[MAX_PATH] = {};
     bool is_ufs = false;
     bool is_pfs = false;
+    bool is_pfsc = false;
     bool is_exfat = false;
     bool has_image = find_image_in_dir(cwd, image_file, sizeof(image_file),
-                                       &is_ufs, &is_pfs, &is_exfat);
+                                       &is_ufs, &is_pfs, &is_pfsc, &is_exfat);
     char mount_point[MAX_PATH] = {0};
     const char* nullfs_src = cwd;
 
@@ -127,6 +129,7 @@ int main(void) {
         "/data/imgmnt",
         "/data/imgmnt/exfatmnt",
         "/data/imgmnt/pfsmnt",
+        "/data/imgmnt/pfscmnt",
         "/data/imgmnt/ufsmnt"
     };
 
@@ -194,6 +197,89 @@ int main(void) {
                 notify("PFS mount failed - falling back to folder mode");
                 nullfs_src = cwd;
             }
+		} else if (is_pfsc) {
+            notify("PFSC image detected: %s", strrchr(image_file, '/') ? strrchr(image_file, '/') + 1 : image_file);
+            if (strlen(mount_point) > 0) unmount_pfsc(mount_point);
+
+            char pfsc_mount_point[MAX_PATH] = {0};
+            if (mount_pfsc_image(image_file, pfsc_mount_point)) {
+                // Point nullfs_src to outer mount point initially
+                nullfs_src = pfsc_mount_point;
+                strncpy(mount_point, pfsc_mount_point, sizeof(mount_point) - 1);
+
+                // --- HARDENED NESTED IMAGE CHECK ---
+                char nested_image_file[MAX_PATH] = {0};
+                bool nested_ufs = false;
+                bool nested_pfs = false;
+                bool nested_pfsc = false;
+                bool nested_exfat = false;
+                
+                notify("Scanning inside PFSC mount...");
+                bool has_nested = find_image_in_dir(pfsc_mount_point, nested_image_file, sizeof(nested_image_file),
+                                                   &nested_ufs, &nested_pfs, &nested_pfsc, &nested_exfat);
+
+                if (has_nested) {
+                    // Reset global target filesystem flags so they don't corrupt/mix up
+                    is_ufs = false;
+                    is_pfs = false;
+                    is_exfat = false;
+                    is_pfsc = true; // Keep true so parent cleanup triggers
+
+                    char nested_mount_point[MAX_PATH] = {0};
+                    bool nested_mount_success = false;
+
+                    if (nested_ufs) {
+                        notify("Nested UFS detected");
+                        nested_mount_success = mount_ufs_image(nested_image_file, nested_mount_point);
+                        if (nested_mount_success) is_ufs = true;
+                    } else if (nested_pfs) {
+                        notify("Nested PFS detected");
+                        nested_mount_success = mount_pfs_image(nested_image_file, nested_mount_point);
+                        if (nested_mount_success) is_pfs = true;
+                    } else if (nested_exfat) {
+                        notify("Nested exFAT detected");
+                        nested_mount_success = mount_exfat_image(nested_image_file, nested_mount_point);
+                        if (nested_mount_success) is_exfat = true;
+                    }
+
+                    if (nested_mount_success) {
+                        // Safely redirect to internal filesystem
+                        static char static_nested_point[MAX_PATH];
+                        strncpy(static_nested_point, nested_mount_point, sizeof(static_nested_point) - 1);
+                        nullfs_src = static_nested_point;
+                        
+                        // Overwrite mount_point so the core engine tracks the active runtime directory
+                        strncpy(mount_point, nested_mount_point, sizeof(mount_point) - 1);
+                    } else {
+                        notify("Nested mount failed - using raw PFSC layout");
+                    }
+                }
+                // --- END NESTED IMAGE CHECK ---
+
+                // Safely allocate clean buffers for parsing UTF-8 structures
+                char src_sce_sys_tmp[MAX_PATH] = {0};
+                snprintf(src_sce_sys_tmp, sizeof(src_sce_sys_tmp), "%s/sce_sys", nullfs_src);
+                
+                memset(src_sce_sys, 0, sizeof(src_sce_sys));
+                snprintf(src_sce_sys, sizeof(src_sce_sys), "%s/sce_sys", cwd);
+                mkdir(src_sce_sys, 0755);
+                
+                if (copy_dir(src_sce_sys_tmp, src_sce_sys) == 0) {
+                    // Sce_sys verified and ready for extraction
+                } else {
+                    notify("Failed to extract game layout metadata");
+                    if (has_nested && strlen(nullfs_src) > 0) {
+                        if (nested_ufs) unmount_ufs(nullfs_src);
+                        else if (nested_pfs) unmount_pfs(nullfs_src);
+                        else if (nested_exfat) unmount_exfat(nullfs_src);
+                    }
+                    unmount_pfsc(pfsc_mount_point);
+                    nullfs_src = cwd;
+                }
+            } else {
+                notify("PFSC root mounting failed");
+                nullfs_src = cwd;
+            }
         } else if (is_exfat) {
             notify("ExFat image detected: %s", strrchr(image_file, '/') ? strrchr(image_file, '/') + 1 : image_file);
             if (mount_exfat_image(image_file, mount_point)) {
@@ -224,6 +310,7 @@ int main(void) {
         if (strlen(mount_point) > 0) {
             if (is_ufs) unmount_ufs(mount_point);
             else if (is_pfs) unmount_pfs(mount_point);
+            else if (is_pfsc) unmount_pfsc(mount_point);
             else if (is_exfat) unmount_exfat(mount_point);
         }
         return -1;
@@ -235,6 +322,7 @@ int main(void) {
         if (strlen(mount_point) > 0) {
             if (is_ufs) unmount_ufs(mount_point);
             else if (is_pfs) unmount_pfs(mount_point);
+            else if (is_pfsc) unmount_pfsc(mount_point);
             else if (is_exfat) unmount_exfat(mount_point);
         }
         return -1;
@@ -258,6 +346,7 @@ int main(void) {
         if (strlen(mount_point) > 0) {
             if (is_ufs) unmount_ufs(mount_point);
             else if (is_pfs) unmount_pfs(mount_point);
+            else if (is_pfsc) unmount_pfsc(mount_point);
             else if (is_exfat) unmount_exfat(mount_point);
         }
         return -1;
@@ -296,6 +385,7 @@ int main(void) {
         if (strlen(mount_point) > 0) {
             if (is_ufs) unmount_ufs(mount_point);
             else if (is_pfs) unmount_pfs(mount_point);
+			else if (is_pfsc) unmount_pfsc(mount_point);
             else if (is_exfat) unmount_exfat(mount_point);
         }
         return -1;
@@ -319,6 +409,7 @@ int main(void) {
             if (strlen(mount_point) > 0) {
                 if (is_ufs) unmount_ufs(mount_point);
                 else if (is_pfs) unmount_pfs(mount_point);
+				else if (is_pfsc) unmount_pfsc(mount_point);
                 else if (is_exfat) unmount_exfat(mount_point);
             }
             return -1;

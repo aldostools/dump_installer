@@ -18,19 +18,34 @@ PS5_HOST ?= ps5
 PS5_PORT ?= 9021
 
 ifdef PS5_PAYLOAD_SDK
-    include $(PS5_PAYLOAD_SDK)/toolchain/prospero.mk
+include $(PS5_PAYLOAD_SDK)/toolchain/prospero.mk
 else
-    $(error PS5_PAYLOAD_SDK is undefined)
+$(error PS5_PAYLOAD_SDK is undefined)
 endif
 
 ELF := dump_installer.elf
 
-CFLAGS := -Wall -Werror -lz -lSceSystemService -lSceUserService -lSceAppInstUtil -lSceFsInternalForVsh -lsqlite3
+# Find all C files under src/
+SRCS := $(shell find src -name '*.c')
+
+# Include root include directory
+CPPFLAGS += -Iinclude
+
+# Compiler flags
+CFLAGS += -Wall -Werror
+
+# Libraries
+LIBS := -lz \
+        -lSceSystemService \
+        -lSceUserService \
+        -lSceAppInstUtil \
+        -lSceFsInternalForVsh \
+        -lsqlite3
 
 all: $(ELF)
 
-$(ELF): $(wildcard *.c)
-	$(CC) $(CFLAGS) -o $@ $^
+$(ELF): $(SRCS)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $^ $(LIBS)
 	strip $@
 
 clean:
